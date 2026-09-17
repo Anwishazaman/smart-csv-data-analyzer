@@ -1,0 +1,17 @@
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+env/
+.venv/
+
+# generated output - only the .gitkeep placeholders should be tracked
+output/*.csv
+visualizations/*.png
+reports/*.txt
+
+# editor stuff
+.vscode/
+.idea/
+.DS_Store
