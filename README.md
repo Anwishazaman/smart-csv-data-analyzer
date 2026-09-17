@@ -1,0 +1,1 @@
+# smart-csv-data-analyzer
