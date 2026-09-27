@@ -16,6 +16,7 @@ Point it at a CSV file (or just use the sample one included) and it will:
 - Show the number of rows, columns, missing values, and duplicate rows
 - Detect numeric and categorical columns automatically
 - Print basic statistics for numeric columns
+- Report numeric distribution skewness and kurtosis
 - Show employee counts and average salary by department
 - Remove duplicate rows and fill missing values
 - Find possible outliers using Isolation Forest and the IQR method
@@ -30,16 +31,30 @@ Point it at a CSV file (or just use the sample one included) and it will:
 The Streamlit app has a `Predict a column` tab. Choose a column and click
 `Train models`. The app decides whether the target is classification or
 regression, fills missing feature values, encodes text columns, splits the
-data into training and test sets, and compares the models.
+data into training and test sets, and compares the models using cross-validation
+on the training split. The held-out test split is reported separately.
 
 For classification it uses Logistic Regression, Random Forest, and XGBoost.
 For regression it uses Linear Regression, Random Forest, Gradient Boosting,
-and XGBoost. It shows the scores, selects the best score from the test set,
-and displays feature importance when the selected model supports it.
+and XGBoost. It reports cross-validation and held-out scores, selects the
+model using mean cross-validation $R^2$ for regression or weighted F1 for
+classification. Regression metrics include RMSE and $R^2$; classification
+metrics include weighted F1 and accuracy. Imputation and encoding are fitted
+inside each cross-validation fold to avoid leaking validation data. The app
+also displays model-based feature importance when the selected model supports
+it.
 
-The prediction result also includes SHAP explanations. These show which
-processed features increased or decreased the selected prediction for a
-held-out test row.
+The prediction result includes global mean-absolute SHAP importance across a
+bounded sample of up to 100 training rows, plus local SHAP values showing
+which processed features increased or decreased one held-out test prediction.
+The global SHAP summary and the single-prediction explanation are separate
+views. Distribution profiling reports skewness and kurtosis for numeric
+columns; the data-quality report also counts IQR outliers. Numeric missing
+values are filled with the median and categorical missing values with the
+most frequent value.
+
+The code supports CSVs with varying columns, but the included sample and tests
+are small; high-dimensional datasets have not been benchmarked or validated.
 
 ## Asking questions about the data
 

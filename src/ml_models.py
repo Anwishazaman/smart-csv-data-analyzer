@@ -1,5 +1,6 @@
 """Train and compare simple models for a selected target column."""
 
+import numpy as np
 import pandas as pd
 try:
     import shap
@@ -15,7 +16,12 @@ from sklearn.ensemble import (
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, r2_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import (
+    KFold,
+    StratifiedKFold,
+    cross_validate,
+    train_test_split,
+)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 
@@ -124,7 +130,7 @@ def _feature_importance(pipeline):
 
 
 def train_and_compare(dataframe, target_column):
-    """Preprocess, split, train several models, and return a comparison."""
+    """Cross-validate models on training data and score the held-out test set."""
     data = dataframe.dropna(subset=[target_column]).copy()
     target = data.pop(target_column)
 
@@ -156,6 +162,17 @@ def train_and_compare(dataframe, target_column):
         stratify=stratify,
     )
 
+    minimum_class_count = int(y_train.value_counts().min()) if problem_type == "classification" else len(y_train)
+    cv_folds = min(5, minimum_class_count)
+    if cv_folds < 2:
+        raise ValueError("At least two training rows per class are required for cross-validation.")
+    if problem_type == "classification":
+        cross_validator = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        scoring = {"accuracy": "accuracy", "f1": "f1_weighted"}
+    else:
+        cross_validator = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        scoring = {"r2": "r2", "rmse": "neg_root_mean_squared_error"}
+
     comparison = []
     fitted_models = {}
     for model_name, model in _models(problem_type).items():
@@ -164,20 +181,30 @@ def train_and_compare(dataframe, target_column):
             ("model", model),
         ])
         try:
+            cv_scores = cross_validate(
+                pipeline,
+                x_train,
+                y_train,
+                cv=cross_validator,
+                scoring=scoring,
+                error_score="raise",
+            )
             pipeline.fit(x_train, y_train)
             predictions = pipeline.predict(x_test)
             if problem_type == "classification":
-                primary_metric = accuracy_score(y_test, predictions)
                 row = {
                     "Model": model_name,
-                    "Accuracy": round(primary_metric, 4),
+                    "CV Accuracy": round(cv_scores["test_accuracy"].mean(), 4),
+                    "CV F1 score": round(cv_scores["test_f1"].mean(), 4),
+                    "Accuracy": round(accuracy_score(y_test, predictions), 4),
                     "F1 score": round(f1_score(y_test, predictions, average="weighted"), 4),
                 }
             else:
-                primary_metric = r2_score(y_test, predictions)
                 row = {
                     "Model": model_name,
-                    "R2 score": round(primary_metric, 4),
+                    "CV R2 score": round(cv_scores["test_r2"].mean(), 4),
+                    "CV RMSE": round(-cv_scores["test_rmse"].mean(), 2),
+                    "R2 score": round(r2_score(y_test, predictions), 4),
                     "RMSE": round(mean_squared_error(y_test, predictions) ** 0.5, 2),
                 }
             comparison.append(row)
@@ -189,7 +216,7 @@ def train_and_compare(dataframe, target_column):
     if not successful:
         raise ValueError("None of the models could be trained on this data.")
 
-    metric_name = "Accuracy" if problem_type == "classification" else "R2 score"
+    metric_name = "CV F1 score" if problem_type == "classification" else "CV R2 score"
     best_row = max(successful, key=lambda row: row[metric_name])
     best_name = best_row["Model"]
 
@@ -200,10 +227,57 @@ def train_and_compare(dataframe, target_column):
         "best_model": fitted_models[best_name],
         "feature_importance": _feature_importance(fitted_models[best_name]),
         "x_test_rows": len(x_test),
+        "cv_folds": cv_folds,
         "test_features": x_test,
+        "training_features": x_train,
         "test_target": y_test,
         "target_encoder": target_encoder,
     }
+
+
+def _make_shap_explainer(model, background):
+    if model.__class__.__name__.startswith("XGB"):
+        return shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+    return shap.Explainer(model, background)
+
+
+def _dense_transformed_features(preprocessor, features):
+    transformed = preprocessor.transform(features)
+    if hasattr(transformed, "toarray"):
+        transformed = transformed.toarray()
+    return transformed
+
+
+def explain_global_importance(pipeline, features, max_rows=100):
+    """Return mean absolute SHAP values across a bounded feature sample."""
+    if shap is None:
+        raise ValueError("SHAP is not installed. Run: pip install shap")
+    if features.empty:
+        raise ValueError("There are no rows to explain.")
+
+    preprocessor = pipeline.named_steps["preprocess"]
+    model = pipeline.named_steps["model"]
+    sample = features.sample(n=min(max_rows, len(features)), random_state=42)
+    transformed = _dense_transformed_features(preprocessor, sample)
+
+    try:
+        explanation = _make_shap_explainer(model, transformed)(transformed)
+    except Exception as error:
+        raise ValueError(f"SHAP could not explain this model: {error}") from error
+
+    values = explanation.values
+    if isinstance(values, list):
+        values = np.stack(values, axis=-1)
+    if values.ndim == 3:
+        importance_values = abs(values).mean(axis=(0, 2))
+    else:
+        importance_values = abs(values).mean(axis=0)
+
+    importance = pd.DataFrame({
+        "Feature": preprocessor.get_feature_names_out(),
+        "Mean absolute SHAP": importance_values,
+    })
+    return importance.sort_values("Mean absolute SHAP", ascending=False).head(15)
 
 
 def explain_prediction(pipeline, features):
@@ -215,20 +289,12 @@ def explain_prediction(pipeline, features):
 
     preprocessor = pipeline.named_steps["preprocess"]
     model = pipeline.named_steps["model"]
-    transformed_background = preprocessor.transform(features)
+    transformed_background = _dense_transformed_features(preprocessor, features)
     transformed = transformed_background[:1]
-    if hasattr(transformed_background, "toarray"):
-        transformed_background = transformed_background.toarray()
-        transformed = transformed_background[:1]
     feature_names = preprocessor.get_feature_names_out()
 
     try:
-        if model.__class__.__name__.startswith("XGB"):
-            explainer = shap.TreeExplainer(
-                model, feature_perturbation="tree_path_dependent"
-            )
-        else:
-            explainer = shap.Explainer(model, transformed_background)
+        explainer = _make_shap_explainer(model, transformed_background)
         explanation = explainer(transformed)
     except Exception as error:
         raise ValueError(f"SHAP could not explain this model: {error}") from error

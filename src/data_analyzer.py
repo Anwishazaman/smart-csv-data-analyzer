@@ -67,6 +67,22 @@ def descriptive_stats(df):
     return stats
 
 
+def distribution_diagnostics(df):
+    """Summarize numeric-column skewness and kurtosis for distribution checks."""
+    numeric_df = df.select_dtypes(include="number")
+    if numeric_df.empty:
+        print("\nNo numeric columns found, skipping distribution diagnostics.")
+        return None
+
+    diagnostics = pd.DataFrame({
+        "Skewness": numeric_df.skew(),
+        "Kurtosis": numeric_df.kurt(),
+    }).round(3)
+    print("\n--- Distribution Diagnostics ---")
+    print(diagnostics)
+    return diagnostics
+
+
 def correlation_analysis(df):
     """Calculate correlations between numeric columns."""
     numeric_df = df.select_dtypes(include="number")

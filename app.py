@@ -56,6 +56,13 @@ with summary_tab:
     else:
         st.write("No numeric columns were found.")
 
+    st.subheader("Distribution diagnostics")
+    distribution = data_analyzer.distribution_diagnostics(dataframe)
+    if distribution is not None:
+        st.dataframe(distribution)
+    else:
+        st.write("No numeric columns were found.")
+
     st.subheader("Correlation analysis")
     if correlations is not None:
         st.dataframe(correlations)
@@ -164,6 +171,7 @@ with ml_tab:
 
             st.write(f"Problem type: **{ml_result['problem_type']}**")
             st.write(f"Rows used for testing: **{ml_result['x_test_rows']}**")
+            st.write(f"Cross-validation folds: **{ml_result['cv_folds']}**")
             st.dataframe(ml_result["comparison"], use_container_width=True)
             st.success(f"Best model: {ml_result['best_name']}")
 
@@ -173,8 +181,17 @@ with ml_tab:
             else:
                 st.info("This model does not provide feature importance values.")
 
+            st.subheader("Global SHAP feature importance")
+            try:
+                global_importance = ml_models.explain_global_importance(
+                    ml_result["best_model"], ml_result["training_features"]
+                )
+                st.dataframe(global_importance, use_container_width=True)
+            except ValueError as error:
+                st.warning(str(error))
+
             st.subheader("Why did this prediction happen?")
-            st.write("SHAP shows which features pushed the first test prediction up or down.")
+            st.write("Local SHAP values show which features pushed the first test prediction up or down.")
             try:
                 explanation = ml_models.explain_prediction(
                     ml_result["best_model"], ml_result["test_features"]

@@ -45,6 +45,7 @@ def run_full_pipeline(df, args):
 
     overview = data_analyzer.dataset_overview(df)
     column_types = data_analyzer.identify_column_types(df)
+    distribution = data_analyzer.distribution_diagnostics(df)
     correlations = data_analyzer.correlation_analysis(df)
     outliers = data_analyzer.outlier_summary(df)
     report_lines.append(f"Rows: {overview['rows']}")
@@ -60,6 +61,9 @@ def run_full_pipeline(df, args):
     report_lines.append("\nColumn Types:")
     report_lines.append(f"  Numeric: {column_types['numeric']}")
     report_lines.append(f"  Categorical: {column_types['categorical']}")
+    if distribution is not None:
+        report_lines.append("\nDistribution Diagnostics (skewness and kurtosis):")
+        report_lines.append(distribution.to_string())
     report_lines.append("\nPossible Outliers (IQR method):")
     for col, count in outliers.items():
         report_lines.append(f"  {col}: {count}")
@@ -149,6 +153,7 @@ def main():
     if args.analyze:
         data_analyzer.dataset_overview(df)
         data_analyzer.identify_column_types(df)
+        data_analyzer.distribution_diagnostics(df)
         data_analyzer.descriptive_stats(df)
         data_analyzer.correlation_analysis(df)
         data_analyzer.outlier_summary(df)

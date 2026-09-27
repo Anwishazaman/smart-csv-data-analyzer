@@ -4,7 +4,7 @@ import pandas as pd
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from data_analyzer import dataset_overview, filter_data
+from data_analyzer import dataset_overview, distribution_diagnostics, filter_data
 
 
 def sample_df():
@@ -40,6 +40,19 @@ def test_dataset_overview_detects_missing_values():
     df.loc[0, "salary"] = None
     overview = dataset_overview(df)
     assert overview["missing_values"]["salary"] == 1
+
+
+def test_distribution_diagnostics_reports_numeric_columns():
+    diagnostics = distribution_diagnostics(sample_df())
+
+    assert list(diagnostics.columns) == ["Skewness", "Kurtosis"]
+    assert set(diagnostics.index) == {"age", "salary"}
+
+
+def test_distribution_diagnostics_without_numeric_columns():
+    diagnostics = distribution_diagnostics(pd.DataFrame({"name": ["Ada", "Lin"]}))
+
+    assert diagnostics is None
 
 
 def test_filter_data_greater_than():
